@@ -11,6 +11,12 @@ if 'input_text' not in st.session_state:
     st.session_state.input_text = ""
 
 def extract_info(text):
+    """
+    从文本中提取关键信息：
+    1. 支持手机号/电话号码两种格式提取
+    2. 价格优先提取「价格：xxx」，无则提取「初始价格：xxx」兜底
+    3. 备注保留所有未被核心字段提取的内容（包括初始价格）
+    """
     result = {
         '姓名': '',
         '身份证号': '',
@@ -19,10 +25,13 @@ def extract_info(text):
         '价格': '',
         '备注': ''
     }
-    lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
+    
+    # 保存原始文本（用于兜底提取初始价格）
+    original_text = text.strip()
+    lines = [line.strip() for line in original_text.split('\n') if line.strip()]
     extracted_lines = []
 
-    # 提取姓名
+    # 1. 提取姓名
     name_pattern = re.compile(r'^姓名：.*', re.M)
     for i, line in enumerate(lines):
         if re.match(name_pattern, line):
@@ -32,7 +41,7 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
 
-    # 提取身份证号
+    # 2. 提取身份证号码
     id_card_pattern = re.compile(r'^身份证号码：.*', re.M)
     for i, line in enumerate(lines):
         if re.match(id_card_pattern, line):
@@ -42,17 +51,25 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
 
-    # 提取手机号
-    phone_pattern = re.compile(r'^手机号：.*', re.M)
-    for i, line in enumerate(lines):
-        if re.match(phone_pattern, line):
-            phone_match = re.search(r'手机号：(\d{11})', line)
-            if phone_match:
-                result['手机号'] = phone_match.group(1).strip()
-                extracted_lines.append(i)
+    # 3. 提取手机号（兼容「手机号」和「电话号码」两种格式）
+    phone_patterns = [
+        re.compile(r'^手机号：.*', re.M),
+        re.compile(r'^电话号码：.*', re.M)
+    ]
+    phone_extracted = False
+    for pattern in phone_patterns:
+        if phone_extracted:
             break
+        for i, line in enumerate(lines):
+            if re.match(pattern, line):
+                phone_match = re.search(r'(\d{11})', line)
+                if phone_match:
+                    result['手机号'] = phone_match.group(1).strip()
+                    extracted_lines.append(i)
+                    phone_extracted = True
+                break
 
-    # 提取名称
+    # 4. 提取名称
     name_product_pattern = re.compile(r'^名称：.*', re.M)
     for i, line in enumerate(lines):
         if re.match(name_product_pattern, line):
@@ -62,7 +79,9 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
 
-    # 提取价格（仅保留数字）
+    # 5. 提取价格（核心修改：优先提取价格，无则提取初始价格兜底）
+    price_extracted = False
+    # 第一步：优先提取「价格：xxx」
     price_pattern = re.compile(r'^价格：.*', re.M)
     for i, line in enumerate(lines):
         if re.match(price_pattern, line):
@@ -72,14 +91,25 @@ def extract_info(text):
                 pure_price = re.search(r'(\d+\.?\d*)', price_text)
                 if pure_price:
                     result['价格'] = pure_price.group(1)
+                    price_extracted = True
                 else:
                     result['价格'] = price_text
                 extracted_lines.append(i)
             break
+    
+    # 第二步：若未提取到价格，从原始文本提取「初始价格：xxx」兜底
+    if not price_extracted:
+        initial_price_match = re.search(r'初始价格：([^\n]+)', original_text)
+        if initial_price_match:
+            initial_price_text = initial_price_match.group(1).strip()
+            pure_initial_price = re.search(r'(\d+\.?\d*)', initial_price_text)
+            if pure_initial_price:
+                result['价格'] = pure_initial_price.group(1)
 
-    # 处理备注
+    # 6. 处理备注：保留所有未被核心字段提取的行（初始价格仍会保留）
     remaining_lines = [lines[i] for i in range(len(lines)) if i not in extracted_lines]
     result['备注'] = '\n'.join(remaining_lines)
+    
     return result
 
 def generate_excel_with_column_width(df, column_width=20):
@@ -104,7 +134,7 @@ def main():
         '请输入需要提取信息的文本',
         value=st.session_state.input_text,
         height=300,
-        placeholder='例如：\n姓名：杜翠英\n身份证号码：412724196809296542\n手机号：15896756230\n名称：美的空调\n价格：8999元\n品牌：美的   类别：空调\n初始价格：8999元\n补贴金额：1349.85元\n实付金额：7649.15元'
+        placeholder='例如：\n姓名：杜翠英\n身份证号码：412724196809296542\n电话号码：15896756230\n名称：美的空调\n品牌：美的   类别：空调\n初始价格：8999元\n补贴金额：1349.85元\n实付金额：7649.15元'
     )
 
     col1, col2 = st.columns(2)
