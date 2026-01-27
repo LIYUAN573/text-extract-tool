@@ -13,9 +13,10 @@ if 'input_text' not in st.session_state:
 def extract_info(text):
     """
     从文本中提取关键信息：
-    1. 支持手机号/电话号码两种格式提取
-    2. 价格优先提取「价格：xxx」，无则提取「初始价格：xxx」兜底
-    3. 备注保留所有未被核心字段提取的内容（包括初始价格）
+    1. 身份证兼容「身份证号码：」「身份证：」两种格式
+    2. 手机号兼容「手机号：」「电话号码：」两种格式
+    3. 价格优先提取「价格：」，无则提取「初始价格：」兜底
+    4. 备注保留所有未被核心字段提取的内容
     """
     result = {
         '姓名': '',
@@ -26,7 +27,7 @@ def extract_info(text):
         '备注': ''
     }
     
-    # 保存原始文本（用于兜底提取初始价格）
+    # 保存原始文本（用于价格兜底提取）
     original_text = text.strip()
     lines = [line.strip() for line in original_text.split('\n') if line.strip()]
     extracted_lines = []
@@ -41,15 +42,24 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
 
-    # 2. 提取身份证号码
-    id_card_pattern = re.compile(r'^身份证号码：.*', re.M)
-    for i, line in enumerate(lines):
-        if re.match(id_card_pattern, line):
-            id_card_match = re.search(r'身份证号码：(\d{18}|\d{17}X|\d{17}x)', line)
-            if id_card_match:
-                result['身份证号'] = id_card_match.group(1).strip()
-                extracted_lines.append(i)
+    # 2. 提取身份证号码（核心修改：兼容「身份证号码：」「身份证：」两种格式）
+    id_card_patterns = [
+        re.compile(r'^身份证号码：.*', re.M),
+        re.compile(r'^身份证：.*', re.M)
+    ]
+    id_card_extracted = False
+    for pattern in id_card_patterns:
+        if id_card_extracted:
             break
+        for i, line in enumerate(lines):
+            if re.match(pattern, line):
+                # 提取18位身份证号（支持数字+X/x）
+                id_card_match = re.search(r'(\d{18}|\d{17}X|\d{17}x)', line)
+                if id_card_match:
+                    result['身份证号'] = id_card_match.group(1).strip()
+                    extracted_lines.append(i)
+                    id_card_extracted = True
+                break
 
     # 3. 提取手机号（兼容「手机号」和「电话号码」两种格式）
     phone_patterns = [
@@ -79,7 +89,7 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
 
-    # 5. 提取价格（核心修改：优先提取价格，无则提取初始价格兜底）
+    # 5. 提取价格（优先提取价格，无则提取初始价格兜底）
     price_extracted = False
     # 第一步：优先提取「价格：xxx」
     price_pattern = re.compile(r'^价格：.*', re.M)
@@ -106,7 +116,7 @@ def extract_info(text):
             if pure_initial_price:
                 result['价格'] = pure_initial_price.group(1)
 
-    # 6. 处理备注：保留所有未被核心字段提取的行（初始价格仍会保留）
+    # 6. 处理备注：保留所有未被核心字段提取的行
     remaining_lines = [lines[i] for i in range(len(lines)) if i not in extracted_lines]
     result['备注'] = '\n'.join(remaining_lines)
     
@@ -134,7 +144,7 @@ def main():
         '请输入需要提取信息的文本',
         value=st.session_state.input_text,
         height=300,
-        placeholder='例如：\n姓名：杜翠英\n身份证号码：412724196809296542\n电话号码：15896756230\n名称：美的空调\n品牌：美的   类别：空调\n初始价格：8999元\n补贴金额：1349.85元\n实付金额：7649.15元'
+        placeholder='例如：\n姓名：杜翠英\n身份证：412724196809296542\n电话号码：15896756230\n名称：美的空调\n品牌：美的   类别：空调\n初始价格：8999元\n补贴金额：1349.85元\n实付金额：7649.15元'
     )
 
     col1, col2 = st.columns(2)
