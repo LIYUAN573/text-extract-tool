@@ -61,11 +61,11 @@ def extract_info(text):
                     id_card_extracted = True
                 break
 
-    # 3. 提取手机号（核心修改：新增「手机：xxx」格式识别）
+    # 3. 提取手机号（兼容「手机号：」「电话号码：」「手机：」三种格式）
     phone_patterns = [
         re.compile(r'^手机号：.*', re.M),       # 优先级1
         re.compile(r'^电话号码：.*', re.M),   # 优先级2
-        re.compile(r'^手机：.*', re.M)        # 优先级3（新增）
+        re.compile(r'^手机：.*', re.M)        # 优先级3
     ]
     phone_extracted = False
     for pattern in phone_patterns:
@@ -148,47 +148,105 @@ def generate_excel_with_column_width(df, column_width=20):
     output.seek(0)
     return output.getvalue()
 
+# 新增：删除单条数据的函数
+def delete_single_data(index):
+    """根据索引删除指定行数据"""
+    if 0 <= index < len(st.session_state.data_list):
+        del st.session_state.data_list[index]
+        st.success(f'第{index+1}条数据已成功删除！')
+    else:
+        st.warning('数据索引无效，删除失败！')
+
 def main():
-    st.title('文本信息提取工具（支持多次累积）')
+    st.title('文本信息提取工具（支持单条删除+多次累积）')
     st.markdown('---')
+    
+    # 文本输入框：移除示例、占位符改为「请输入文本」
     st.session_state.input_text = st.text_area(
         '请输入需要提取信息的文本',
         value=st.session_state.input_text,
         height=300,
-        placeholder='例如：\n姓名：杜翠英\n身份证：412724196809296542\n手机：15896756230\n名称：美的空调\n品牌：美的   类别：空调\n初始价：8999元\n补贴金额：1349.85元\n实付金额：7649.15元'
+        placeholder='请输入文本'
     )
-
+    
+    # 按钮区域：提取添加 + 清空文本
     col1, col2 = st.columns(2)
     with col1:
+        # 提取并添加到表格按钮
         if st.button('提取信息并添加到表格', type='primary'):
             if not st.session_state.input_text.strip():
                 st.warning('请输入需要提取的文本内容！')
             else:
+                # 提取信息
                 info = extract_info(st.session_state.input_text)
+                # 添加到会话状态的列表中
                 st.session_state.data_list.append(info)
                 st.success('信息已成功添加到表格！')
+    
     with col2:
+        # 清空填写文本按钮
         if st.button('清空填写文本', type='secondary'):
             st.session_state.input_text = ""
             st.success('输入框文本已清空！')
-
+    
+    # 清空所有表格数据按钮
     col3 = st.columns(1)[0]
     with col3:
         if st.button('清空所有表格数据', type='secondary'):
             st.session_state.data_list = []
             st.warning('所有表格数据已清空！')
-
+    
     st.markdown('---')
+    
+    # 展示累积的表格（支持单条删除）
     if st.session_state.data_list:
-        st.subheader('累积提取结果')
-        df = pd.DataFrame(st.session_state.data_list)
-        st.dataframe(df, use_container_width=True)
-        excel_data = generate_excel_with_column_width(df, column_width=20)
+        st.subheader('累积提取结果（支持单条删除）')
+        # 转换为DataFrame并重置索引（用于行号显示）
+        df = pd.DataFrame(st.session_state.data_list).reset_index(drop=True)
+        
+        # 遍历每条数据，生成带删除按钮的行
+        for idx in range(len(df)):
+            # 定义每行的列布局：数据列 + 操作列
+            # 动态调整列宽，适配备注字段
+            data_cols = st.columns(len(df.columns))
+            btn_col = st.columns(1)
+            
+            # 显示当前行的所有数据
+            for col_idx, col_name in enumerate(df.columns):
+                with data_cols[col_idx]:
+                    # 备注字段换行显示，其他字段正常显示
+                    if col_name == '备注' and df.iloc[idx][col_name]:
+                        st.write(f'**{col_name}：**\n{df.iloc[idx][col_name]}')
+                    else:
+                        st.write(f'**{col_name}：** {df.iloc[idx][col_name] if df.iloc[idx][col_name] else "-"}')
+            
+            # 显示当前行的删除按钮
+            with btn_col[0]:
+                delete_btn = st.button(
+                    f'删除第{idx+1}条',
+                    key=f'delete_{idx}',  # 唯一key，避免按钮冲突
+                    type='secondary'
+                )
+                # 点击按钮触发删除
+                if delete_btn:
+                    delete_single_data(idx)
+                    # 刷新页面，立即显示删除后的结果
+                    st.rerun()
+            
+            # 行分隔线，区分不同数据
+            st.markdown('---')
+        
+        # 生成带列宽的Excel文件（排除无实际意义的索引）
+        raw_df = pd.DataFrame(st.session_state.data_list)
+        excel_data = generate_excel_with_column_width(raw_df, column_width=20)
+        
+        # 下载按钮
         st.download_button(
             label='下载完整Excel表格',
             data=excel_data,
             file_name='信息提取累积结果.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            type='primary'
         )
     else:
         st.info('暂无提取数据，请输入文本并点击「提取信息并添加到表格」按钮')
