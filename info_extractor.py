@@ -13,10 +13,11 @@ if 'input_text' not in st.session_state:
 def extract_info(text):
     """
     从文本中提取关键信息：
-    1. 身份证兼容「身份证号码：」「身份证：」两种格式
-    2. 手机号兼容「手机号：」「电话号码：」「手机：」三种格式
-    3. 价格优先级：价格 > 初始价格 > 初始价（均无则为空）
-    4. 备注保留所有未被核心字段提取的内容
+    1. 全字段支持中文全角冒号「：」、英文半角冒号「:」
+    2. 身份证兼容「身份证号码：/身份证号码:」「身份证：/身份证:」两种格式
+    3. 手机号兼容「手机号：/手机号:」「电话号码：/电话号码:」「手机：/手机:」「电话：/电话:」四种格式
+    4. 价格优先级：价格：/价格: > 初始价格：/初始价格: > 初始价：/初始价:（均无则为空）
+    5. 备注保留所有未被核心字段提取的内容
     """
     result = {
         '姓名': '',
@@ -32,20 +33,20 @@ def extract_info(text):
     lines = [line.strip() for line in original_text.split('\n') if line.strip()]
     extracted_lines = []
 
-    # 1. 提取姓名
-    name_pattern = re.compile(r'^姓名：.*', re.M)
+    # 1. 提取姓名 | 支持「姓名：」「姓名:」
+    name_pattern = re.compile(r'^姓名[：:].*', re.M)
     for i, line in enumerate(lines):
         if re.match(name_pattern, line):
-            name_match = re.search(r'姓名：([^\n]+)', line)
+            name_match = re.search(r'姓名[：:]([^\n]+)', line)
             if name_match:
                 result['姓名'] = name_match.group(1).strip()
                 extracted_lines.append(i)
             break
 
-    # 2. 提取身份证号码（兼容「身份证号码：」「身份证：」两种格式）
+    # 2. 提取身份证号码 | 支持「身份证号码：/身份证号码:」「身份证：/身份证:」
     id_card_patterns = [
-        re.compile(r'^身份证号码：.*', re.M),
-        re.compile(r'^身份证：.*', re.M)
+        re.compile(r'^身份证号码[：:].*', re.M),
+        re.compile(r'^身份证[：:].*', re.M)
     ]
     id_card_extracted = False
     for pattern in id_card_patterns:
@@ -54,18 +55,19 @@ def extract_info(text):
         for i, line in enumerate(lines):
             if re.match(pattern, line):
                 # 提取18位身份证号（支持数字+X/x）
-                id_card_match = re.search(r'(\d{18}|\d{17}X|\d{17}x)', line)
+                id_card_match = re.search(r'([\dXx]{18})', line)
                 if id_card_match:
                     result['身份证号'] = id_card_match.group(1).strip()
                     extracted_lines.append(i)
                     id_card_extracted = True
                 break
 
-    # 3. 提取手机号（兼容「手机号：」「电话号码：」「手机：」三种格式）
+    # 3. 提取手机号 | 支持4种格式+双冒号，优先级：手机号 > 电话号码 > 手机 > 电话
     phone_patterns = [
-        re.compile(r'^手机号：.*', re.M),       # 优先级1
-        re.compile(r'^电话号码：.*', re.M),   # 优先级2
-        re.compile(r'^手机：.*', re.M)        # 优先级3
+        re.compile(r'^手机号[：:].*', re.M),
+        re.compile(r'^电话号码[：:].*', re.M),
+        re.compile(r'^手机[：:].*', re.M),
+        re.compile(r'^电话[：:].*', re.M)
     ]
     phone_extracted = False
     for pattern in phone_patterns:
@@ -81,23 +83,23 @@ def extract_info(text):
                     phone_extracted = True
                 break
 
-    # 4. 提取名称
-    name_product_pattern = re.compile(r'^名称：.*', re.M)
+    # 4. 提取名称 | 支持「名称：」「名称:」
+    name_product_pattern = re.compile(r'^名称[：:].*', re.M)
     for i, line in enumerate(lines):
         if re.match(name_product_pattern, line):
-            name_product_match = re.search(r'名称：([^\n]+)', line)
+            name_product_match = re.search(r'名称[：:]([^\n]+)', line)
             if name_product_match:
                 result['名称'] = name_product_match.group(1).strip()
                 extracted_lines.append(i)
             break
 
-    # 5. 提取价格（兜底支持「初始价格：」「初始价：」）
+    # 5. 提取价格 | 支持双冒号，优先级：价格 > 初始价格 > 初始价
     price_extracted = False
-    # 第一步：优先提取「价格：xxx」
-    price_pattern = re.compile(r'^价格：.*', re.M)
+    # 第一步：优先提取「价格：」「价格:」
+    price_pattern = re.compile(r'^价格[：:].*', re.M)
     for i, line in enumerate(lines):
         if re.match(price_pattern, line):
-            price_match = re.search(r'价格：([^\n]+)', line)
+            price_match = re.search(r'价格[：:]([^\n]+)', line)
             if price_match:
                 price_text = price_match.group(1).strip()
                 pure_price = re.search(r'(\d+\.?\d*)', price_text)
@@ -109,18 +111,18 @@ def extract_info(text):
                 extracted_lines.append(i)
             break
     
-    # 第二步：若未提取到价格，依次匹配「初始价格：xxx」「初始价：xxx」兜底
+    # 第二步：兜底提取「初始价格：/初始价格:」「初始价：/初始价:」
     if not price_extracted:
-        # 先匹配「初始价格：」
-        initial_price_match = re.search(r'初始价格：([^\n]+)', original_text)
+        # 先匹配「初始价格：」「初始价格:」
+        initial_price_match = re.search(r'初始价格[：:]([^\n]+)', original_text)
         if initial_price_match:
             initial_price_text = initial_price_match.group(1).strip()
             pure_initial_price = re.search(r'(\d+\.?\d*)', initial_price_text)
             if pure_initial_price:
                 result['价格'] = pure_initial_price.group(1)
         else:
-            # 再匹配「初始价：」
-            initial_price_short_match = re.search(r'初始价：([^\n]+)', original_text)
+            # 再匹配「初始价：」「初始价:」
+            initial_price_short_match = re.search(r'初始价[：:]([^\n]+)', original_text)
             if initial_price_short_match:
                 initial_price_short_text = initial_price_short_match.group(1).strip()
                 pure_initial_price_short = re.search(r'(\d+\.?\d*)', initial_price_short_text)
@@ -148,7 +150,7 @@ def generate_excel_with_column_width(df, column_width=20):
     output.seek(0)
     return output.getvalue()
 
-# 新增：删除单条数据的函数
+# 单条数据删除函数
 def delete_single_data(index):
     """根据索引删除指定行数据"""
     if 0 <= index < len(st.session_state.data_list):
@@ -158,10 +160,10 @@ def delete_single_data(index):
         st.warning('数据索引无效，删除失败！')
 
 def main():
-    st.title('文本信息提取工具（支持单条删除+多次累积）')
+    st.title('文本信息提取工具（支持单条删除+多格式冒号）')
     st.markdown('---')
     
-    # 文本输入框：移除示例、占位符改为「请输入文本」
+    # 文本输入框：极简占位符「请输入文本」，无任何示例
     st.session_state.input_text = st.text_area(
         '请输入需要提取信息的文本',
         value=st.session_state.input_text,
@@ -172,19 +174,15 @@ def main():
     # 按钮区域：提取添加 + 清空文本
     col1, col2 = st.columns(2)
     with col1:
-        # 提取并添加到表格按钮
         if st.button('提取信息并添加到表格', type='primary'):
             if not st.session_state.input_text.strip():
                 st.warning('请输入需要提取的文本内容！')
             else:
-                # 提取信息
                 info = extract_info(st.session_state.input_text)
-                # 添加到会话状态的列表中
                 st.session_state.data_list.append(info)
                 st.success('信息已成功添加到表格！')
     
     with col2:
-        # 清空填写文本按钮
         if st.button('清空填写文本', type='secondary'):
             st.session_state.input_text = ""
             st.success('输入框文本已清空！')
@@ -198,49 +196,40 @@ def main():
     
     st.markdown('---')
     
-    # 展示累积的表格（支持单条删除）
+    # 展示累积结果+单条删除功能
     if st.session_state.data_list:
         st.subheader('累积提取结果（支持单条删除）')
-        # 转换为DataFrame并重置索引（用于行号显示）
         df = pd.DataFrame(st.session_state.data_list).reset_index(drop=True)
         
-        # 遍历每条数据，生成带删除按钮的行
+        # 逐行渲染数据+删除按钮
         for idx in range(len(df)):
-            # 定义每行的列布局：数据列 + 操作列
-            # 动态调整列宽，适配备注字段
             data_cols = st.columns(len(df.columns))
             btn_col = st.columns(1)
             
-            # 显示当前行的所有数据
+            # 显示行数据，备注换行、空值显示-
             for col_idx, col_name in enumerate(df.columns):
                 with data_cols[col_idx]:
-                    # 备注字段换行显示，其他字段正常显示
                     if col_name == '备注' and df.iloc[idx][col_name]:
                         st.write(f'**{col_name}：**\n{df.iloc[idx][col_name]}')
                     else:
                         st.write(f'**{col_name}：** {df.iloc[idx][col_name] if df.iloc[idx][col_name] else "-"}')
             
-            # 显示当前行的删除按钮
+            # 独立删除按钮，唯一key避免冲突
             with btn_col[0]:
                 delete_btn = st.button(
                     f'删除第{idx+1}条',
-                    key=f'delete_{idx}',  # 唯一key，避免按钮冲突
+                    key=f'delete_{idx}',
                     type='secondary'
                 )
-                # 点击按钮触发删除
                 if delete_btn:
                     delete_single_data(idx)
-                    # 刷新页面，立即显示删除后的结果
                     st.rerun()
             
-            # 行分隔线，区分不同数据
             st.markdown('---')
         
-        # 生成带列宽的Excel文件（排除无实际意义的索引）
+        # Excel下载（保留列宽）
         raw_df = pd.DataFrame(st.session_state.data_list)
         excel_data = generate_excel_with_column_width(raw_df, column_width=20)
-        
-        # 下载按钮
         st.download_button(
             label='下载完整Excel表格',
             data=excel_data,
